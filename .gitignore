@@ -1,0 +1,6 @@
+plan/
+Dev Board.html
+Tracker.db
+frontend/node_modules
+build*
+frontend/dist

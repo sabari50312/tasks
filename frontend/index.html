@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dev Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <button class="proj-btn" id="projBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+      <span id="projName">Dev Board</span>
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg>
+    </button>
+    <span class="sync" id="sync" aria-live="polite">Connecting…</span>
+    <span class="spacer"></span>
+    <button class="btn ghost small" id="backupBtn" type="button" hidden>Backup</button>
+  </div>
+  <div class="bar2">
+    <input class="search" id="search" type="search" placeholder="Search, or #tag" aria-label="Search items">
+    <div class="chips" id="typeChips" role="group" aria-label="Filter by type">
+      <button class="chip" type="button" data-type="all">All</button>
+      <button class="chip" type="button" data-type="feature">Features</button>
+      <button class="chip" type="button" data-type="bug">Bugs</button>
+      <button class="chip" type="button" data-type="task">Tasks</button>
+    </div>
+    <div class="chips" id="prioChips" role="group" aria-label="Filter by priority">
+      <button class="chip" type="button" data-prio="all">Any priority</button>
+      <button class="chip" type="button" data-prio="high"><i class="pdot" style="background:var(--hi)"></i>High</button>
+      <button class="chip" type="button" data-prio="med"><i class="pdot" style="background:var(--med)"></i>Medium</button>
+      <button class="chip" type="button" data-prio="low"><i class="pdot" style="background:var(--lo)"></i>Low</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Status"></nav>
+</header>
+
+<main class="board" id="board"></main>
+
+<dialog id="itemDlg" class="sheet" aria-label="Item details">
+  <div class="sheet-head">
+    <div class="where">
+      <button class="crumb" id="dProjBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Change project"><span id="dProjName"></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg></button>
+      <span class="sep">/</span>
+      <button class="crumb" id="dTypeBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Change type"><span id="dTypeName"></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg></button>
+    </div>
+    <button class="btn ghost small danger" id="dDelete" type="button">Delete</button>
+    <button class="btn small" id="dClose" type="button">Close</button>
+  </div>
+  <div class="sheet-body">
+    <textarea class="d-title" id="dTitle" rows="1" maxlength="300" aria-label="Title"></textarea>
+    <div class="ai-bar" id="dAiBar" hidden>
+      <button class="btn small ai-btn" id="dAi" type="button"></button>
+    </div>
+    <div class="ai-panel" id="dAiPanel" hidden></div>
+    <div class="seg" id="dStatus" role="group" aria-label="Status"></div>
+    <div class="fields">
+      <label class="field">Priority
+        <select id="dPrio"><option value="high">High</option><option value="med">Medium</option><option value="low">Low</option></select>
+      </label>
+      <label class="field">Due date
+        <span class="due-wrap"><input type="date" id="dDue"><button class="x" id="dDueClear" type="button" aria-label="Clear due date">×</button></span>
+      </label>
+    </div>
+    <div class="sec" hidden>
+      <h4>Tags</h4>
+      <div class="tag-row" id="dTags"></div>
+    </div>
+    <div class="sec">
+      <h4>Description</h4>
+      <textarea class="d-desc" id="dDesc" placeholder="Context, repro steps, acceptance criteria"></textarea>
+    </div>
+    <div class="sec" hidden>
+      <h4>Checklist <span class="sub" id="dCheckCount"></span></h4>
+      <div id="dChecklist" class="sec"></div>
+      <input class="line-input" id="dCheckAdd" placeholder="Add a point and press Enter" maxlength="300">
+    </div>
+    <div class="sec" hidden>
+      <h4>Links</h4>
+      <div id="dLinks" class="sec"></div>
+      <div class="link-add">
+        <input id="dLinkUrl" type="url" inputmode="url" placeholder="https://…" aria-label="Link URL">
+        <input id="dLinkLabel" placeholder="Label (optional)" maxlength="80" aria-label="Link label">
+        <button class="btn" id="dLinkAdd" type="button">Add link</button>
+      </div>
+    </div>
+    <div class="sec" hidden>
+      <h4>Activity</h4>
+      <div class="post">
+        <textarea class="comment-box" id="dComment" placeholder="Write a comment or update"></textarea>
+        <div class="actions"><button class="btn primary" id="dPost" type="button">Post</button></div>
+      </div>
+      <div class="log" id="dLog"></div>
+    </div>
+    <div class="created" id="dCreated"></div>
+  </div>
+</dialog>
+
+<dialog id="backupDlg" hidden>
+  <div class="dlg-body">
+    <div class="dlg-head"><h3>Backup</h3><button class="btn ghost small" id="bClose" type="button">Close</button></div>
+    <p class="hint">Copy this text to keep a backup. To restore, paste a backup here and load it. Items with the same ID are overwritten.</p>
+    <textarea class="dump" id="dump" spellcheck="false" aria-label="Backup data"></textarea>
+    <p class="hint" id="backupMsg" aria-live="polite"></p>
+    <div class="actions">
+      <button class="btn push" id="bCopy" type="button">Copy</button>
+      <button class="btn primary" id="bLoad" type="button">Load pasted backup</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
