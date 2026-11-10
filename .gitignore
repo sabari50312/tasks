@@ -2,5 +2,6 @@ plan/
 Dev Board.html
 Tracker.db
 frontend/node_modules
-build*
+build/bin/
 frontend/dist
+/ICON.png*
