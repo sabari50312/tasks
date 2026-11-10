@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dev Board</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -18,6 +15,9 @@
     </button>
     <span class="sync" id="sync" aria-live="polite">Connecting…</span>
     <span class="spacer"></span>
+    <button class="icon-btn" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme"><span class="sicon" id="themeIcon"></span></button>
+    <button class="btn primary small" id="newBtn" type="button"><span class="plus" aria-hidden="true">+</span>New item</button>
     <button class="btn ghost small" id="backupBtn" type="button" hidden>Backup</button>
   </div>
   <div class="bar2">
@@ -48,20 +48,21 @@
       <button class="crumb" id="dTypeBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Change type"><span id="dTypeName"></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg></button>
     </div>
     <button class="btn ghost small danger" id="dDelete" type="button">Delete</button>
-    <button class="btn small" id="dClose" type="button">Close</button>
+    <button class="btn primary small" id="dCreate" type="button" hidden>Create</button>
+    <button class="btn small ghost" id="dClose" type="button">Close</button>
   </div>
   <div class="sheet-body">
-    <textarea class="d-title" id="dTitle" rows="1" maxlength="300" aria-label="Title"></textarea>
+    <textarea class="d-title" id="dTitle" rows="1" maxlength="300" aria-label="Title" placeholder="Item title"></textarea>
     <div class="ai-bar" id="dAiBar" hidden>
       <button class="btn small ai-btn" id="dAi" type="button"></button>
     </div>
     <div class="ai-panel" id="dAiPanel" hidden></div>
     <div class="seg" id="dStatus" role="group" aria-label="Status"></div>
     <div class="fields">
-      <label class="field">Priority
+      <label class="field"><span>Priority</span>
         <select id="dPrio"><option value="high">High</option><option value="med">Medium</option><option value="low">Low</option></select>
       </label>
-      <label class="field">Due date
+      <label class="field"><span>Due date</span>
         <span class="due-wrap"><input type="date" id="dDue"><button class="x" id="dDueClear" type="button" aria-label="Clear due date">×</button></span>
       </label>
     </div>
@@ -109,6 +110,27 @@
       <button class="btn push" id="bCopy" type="button">Copy</button>
       <button class="btn primary" id="bLoad" type="button">Load pasted backup</button>
     </div>
+  </div>
+</dialog>
+
+<dialog id="keysDlg" aria-label="Keyboard shortcuts">
+  <div class="dlg-body">
+    <div class="dlg-head"><h3>Keyboard shortcuts</h3><button class="btn ghost small" id="kClose" type="button">Close</button></div>
+    <div class="keys">
+      <div class="k-row"><span class="k-desc">New item in the current column</span><kbd>N</kbd></div>
+      <div class="k-row"><span class="k-desc">Add and open the item</span><kbd>Enter</kbd></div>
+      <div class="k-row"><span class="k-desc">Open the focused card</span><kbd>E</kbd></div>
+      <div class="k-row"><span class="k-desc">Move between cards</span><span class="k-group"><kbd>&larr;</kbd><kbd>&rarr;</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd></span></div>
+      <div class="k-row"><span class="k-desc">Project menu, then pick with &uarr; &darr; or j k + Enter</span><kbd>P</kbd></div>
+      <div class="k-row"><span class="k-desc">Cycle the type filter</span><kbd>T</kbd></div>
+      <div class="k-row"><span class="k-desc">Filter by priority (again to clear)</span><span class="k-group"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
+      <div class="k-row"><span class="k-desc">Search</span><span class="k-group"><kbd>/</kbd><kbd>Ctrl K</kbd></span></div>
+      <div class="k-row"><span class="k-desc">Undo last add or delete</span><kbd>Ctrl Z</kbd></div>
+      <div class="k-row"><span class="k-desc">Zoom interface</span><span class="k-group"><kbd>Ctrl +</kbd><kbd>Ctrl -</kbd><kbd>Ctrl 0</kbd></span></div>
+      <div class="k-row"><span class="k-desc">Close card, menu or dialog</span><kbd>Esc</kbd></div>
+      <div class="k-row"><span class="k-desc">This list</span><kbd>?</kbd></div>
+    </div>
+    <p class="hint">Drag the grip between columns to resize them; click a column title to fold it away.</p>
   </div>
 </dialog>
 

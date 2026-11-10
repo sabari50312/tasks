@@ -24,13 +24,18 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     comment: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
     tick: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>',
     chev: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg>',
-    spark: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5l1.4 4.1 4.1 1.4-4.1 1.4L8 12.5 6.6 8.4 2.5 7l4.1-1.4z"/><path d="M13 10.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/></svg>'
+    spark: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5l1.4 4.1 4.1 1.4-4.1 1.4L8 12.5 6.6 8.4 2.5 7l4.1-1.4z"/><path d="M13 10.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/></svg>',
+    sun: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/></svg>',
+    moon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8 5.6 5.6 0 1 0 13.2 9.8z"/></svg>'
   };
   const TYPES = { feature: 'Feature', bug: 'Bug', task: 'Task' };
   const PRIOS = { high: 'High', med: 'Medium', low: 'Low' };
   const ID_RE = /^[A-Za-z0-9_\-.~:@+]{1,120}$/;
   const LS_UI = 'devboard.v2.ui';
   const LS_LOCAL = 'devboard.v2.local';
+  const LS_THEME = 'devboard.v2.theme';
+  const LS_ZOOM = 'devboard.v2.zoom';
+  const LS_COLS = 'devboard.v2.cols2';   // v2 keys stored pixel widths, this one stores weights
   const CAN_DRAG = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   /* ---------- Helpers ---------- */
@@ -88,6 +93,38 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   if (ui.prio !== 'all' && !PRIOS[ui.prio]) ui.prio = 'all';
   function saveUI() { lsSet(LS_UI, ui); }
   let query = '';
+
+  /* ---------- Theme, zoom, column layout ---------- */
+  const mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function themePref() { const v = lsGet(LS_THEME); return v === 'light' || v === 'dark' ? v : null; }
+  function prefersDark() { const p = themePref(); return p ? p === 'dark' : !!(mqDark && mqDark.matches); }
+  function applyTheme() {
+    const p = themePref(), root = document.documentElement;
+    if (p) root.dataset.theme = p; else delete root.dataset.theme;
+    const btn = $('themeBtn'); if (!btn) return;
+    btn.title = prefersDark() ? 'Switch to light theme' : 'Switch to dark theme';
+    btn.setAttribute('aria-label', btn.title);
+    $('themeIcon').innerHTML = prefersDark() ? GLYPH.sun : GLYPH.moon;
+  }
+
+  let zoom = Number(lsGet(LS_ZOOM)) || 1;
+  if (!(zoom >= 0.8 && zoom <= 1.4)) zoom = 1;
+  function applyZoom() { document.body.style.zoom = zoom === 1 ? '' : String(zoom); }
+  function zoomBy(d) {
+    zoom = Math.min(1.4, Math.max(0.8, Math.round((zoom + d) * 10) / 10));
+    lsSet(LS_ZOOM, zoom); applyZoom(); closePopover();
+  }
+
+  // { backlog: { w: 320, rail: false }, ... }
+  const colCfg = Object.assign({}, lsGet(LS_COLS) || {});
+  function saveCols() { lsSet(LS_COLS, colCfg); }
+  function colWeight(id) { const c = colCfg[id]; return c && c.w ? c.w : 1; }
+  function paintCols() {
+    document.querySelectorAll('.board .column').forEach(c => {
+      if (c.dataset.status) c.style.setProperty('--w', String(colWeight(c.dataset.status)));
+    });
+  }
+  function isRail(id) { return !!(colCfg[id] && colCfg[id].rail); }
 
   /* ---------- Store ---------- */
   const S = {
@@ -160,6 +197,10 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   }
   function del(kind, id) {
     const k = kind + '/' + id;
+    if (kind === 'items') {
+      const obj = state.items[id] || S.raw.items[id];
+      if (obj) remember({ op: 'restore', kind, obj: clone(obj) });
+    }
     if (S.mode !== 'db') { delete S.raw[kind][id]; persistLocal(); compose(); scheduleRender(); return; }
     delete S.pending[k]; S.deleting[k] = true;
     compose(); scheduleRender();
@@ -294,13 +335,13 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   }
 
   /* ---------- Rendering ---------- */
-  let rq = false, dragId = null, renderQueued = false;
+  let rq = false, dragId = null, renderQueued = false, resizing = false;
   function scheduleRender() {
     if (rq) return; rq = true;
     requestAnimationFrame(() => { rq = false; render(); });
   }
   function render() {
-    if (dragId) { renderQueued = true; return; }
+    if (dragId || resizing) { renderQueued = true; return; }
     if (pop && pop.kind === 'addTarget') closePopover();
     renderHeader();
     renderBoard();
@@ -309,7 +350,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   }
   function onData() {
     scheduleRender();
-    if ($('itemDlg').open && cur && !state.items[cur.id]) { cur = null; $('itemDlg').close(); }
+    if (!isNew && $('itemDlg').open && cur && !state.items[cur.id]) { cur = null; $('itemDlg').close(); }
   }
 
   function renderHeader() {
@@ -333,6 +374,8 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     board.querySelectorAll('.list').forEach(l => { scrolls[l.dataset.status] = l.scrollTop; });
     const ae = document.activeElement;
     const typing = ae && ae.dataset && ae.dataset.add ? { status: ae.dataset.add, value: ae.value, start: ae.selectionStart, end: ae.selectionEnd } : null;
+    const focusId = ae && ae.closest ? (ae.closest('.card') || {}).dataset : null;
+    let prevCol = null;
     const scrollLeft = board.scrollLeft;
 
     board.textContent = ''; tabs.textContent = '';
@@ -349,10 +392,42 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       t.addEventListener('click', () => { ui.tab = s.id; saveUI(); render(); });
       tabs.appendChild(t);
 
+      if (prevCol) board.appendChild(colSplit(prevCol, s.id));
+      prevCol = s.id;
+
       const col = el('section', 'column' + (ui.tab === s.id ? ' active' : ''));
+      col.dataset.status = s.id;
+      col.style.setProperty('--w', String(colWeight(s.id)));
+      if (isRail(s.id)) col.classList.add('rail');
       col.setAttribute('aria-label', s.name);
       const head = el('div', 'col-head');
-      head.appendChild(glyph(ICON, s.id)); head.appendChild(el('h2', '', s.name)); head.appendChild(el('span', 'count', String(items.length)));
+      if (CAN_DRAG) {
+        head.setAttribute('role', 'button'); head.tabIndex = 0;
+        head.setAttribute('aria-expanded', isRail(s.id) ? 'false' : 'true');
+        head.title = (isRail(s.id) ? 'Unfold ' : 'Fold ') + s.name;
+      }
+      const full = el('div', 'head-full');
+      full.appendChild(glyph(ICON, s.id));
+      full.appendChild(el('h2', '', s.name));
+      full.appendChild(el('span', 'count', String(items.length)));
+      const railHead = el('div', 'head-rail');
+      railHead.appendChild(glyph(ICON, s.id));
+      railHead.appendChild(el('span', 'rot', s.name));
+      railHead.appendChild(el('span', 'count', String(items.length)));
+      head.appendChild(full); head.appendChild(railHead);
+      const fold = () => {
+        if (!CAN_DRAG) return;
+        const rail = !isRail(s.id);
+        colCfg[s.id] = Object.assign({}, colCfg[s.id], { rail });
+        saveCols();
+        // Toggle in place: a re-render would build a fresh column at its final
+        // width, so the flex-basis transition would never run.
+        col.classList.toggle('rail', rail);
+        head.setAttribute('aria-expanded', rail ? 'false' : 'true');
+        head.title = (rail ? 'Unfold ' : 'Fold ') + s.name;
+      };
+      head.addEventListener('click', fold);
+      head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fold(); } });
       col.appendChild(head);
 
       const list = el('div', 'list'); list.dataset.status = s.id;
@@ -362,46 +437,16 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       col.appendChild(list);
 
       const add = el('div', 'add');
-      {
-        if (ui.projectId === 'all') {
-          const tp = state.projects[addTarget()];
-          const tb = el('button', 'add-target'); tb.type = 'button';
-          tb.setAttribute('aria-haspopup', 'menu'); tb.setAttribute('aria-expanded', 'false');
-          tb.appendChild(el('span', '', 'Add to')); tb.appendChild(el('b', '', tp ? tp.name : ''));
-          tb.appendChild(glyph(GLYPH, 'chev', 'ic'));
-          tb.addEventListener('click', () => togglePopover(tb, 'addTarget', buildAddTarget));
-          add.appendChild(tb);
-        }
-        const input = document.createElement('input');
-        input.placeholder = 'Add an item, e.g. bug: login 401';
-        input.setAttribute('aria-label', 'Add an item to ' + s.name);
-        input.maxLength = 300;
-        input.dataset.add = s.id;
-        input.enterKeyHint = 'done';
-        const aiOn = aiAvailable();
-        input.addEventListener('keydown', e => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            if ((e.metaKey || e.ctrlKey) && aiOn) addWithAI(s.id, input.value); else addItem(s.id, input.value);
-            input.value = '';
-          }
-          if (e.key === 'Escape') { input.value = ''; input.blur(); }
-        });
-        const rowEl = el('div', 'add-row');
-        rowEl.appendChild(input);
-        if (aiOn) {
-          const ab = el('button', 'ai-add'); ab.type = 'button';
-          ab.title = 'Add with AI (Ctrl/Cmd + Enter)'; ab.setAttribute('aria-label', 'Add with AI');
-          ab.appendChild(glyph(GLYPH, 'spark', 'ic')); ab.appendChild(el('span', '', 'AI'));
-          ab.addEventListener('mousedown', e => e.preventDefault());
-          ab.addEventListener('click', () => {
-            if (!input.value.trim()) { input.focus(); showToast('Type a short note first, then tap AI.'); return; }
-            addWithAI(s.id, input.value); input.value = '';
-          });
-          rowEl.appendChild(ab);
-        }
-        add.appendChild(rowEl);
+      if (ui.projectId === 'all') {
+        const tp = state.projects[addTarget()];
+        const tb = el('button', 'add-target'); tb.type = 'button';
+        tb.setAttribute('aria-haspopup', 'menu'); tb.setAttribute('aria-expanded', 'false');
+        tb.appendChild(el('span', '', 'Add to')); tb.appendChild(el('b', '', tp ? tp.name : ''));
+        tb.appendChild(glyph(GLYPH, 'chev', 'ic'));
+        tb.addEventListener('click', () => togglePopover(tb, 'addTarget', buildAddTarget));
+        add.appendChild(tb);
       }
+      add.appendChild(composer(s.id));
       col.appendChild(add);
       board.appendChild(col);
     }
@@ -409,8 +454,11 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     board.scrollLeft = scrollLeft;
     board.querySelectorAll('.list').forEach(l => { if (scrolls[l.dataset.status] != null) l.scrollTop = scrolls[l.dataset.status]; });
     if (typing) {
-      const again = board.querySelector('input[data-add="' + typing.status + '"]');
+      const again = board.querySelector('[data-add="' + typing.status + '"]');
       if (again) { again.value = typing.value; again.focus(); try { again.setSelectionRange(typing.start, typing.end); } catch (e) {} }
+    } else if (focusId && focusId.id) {
+      const again = board.querySelector('.card[data-id="' + focusId.id + '"]');
+      if (again) again.focus();
     }
   }
 
@@ -437,6 +485,8 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     const top = el('div', 'card-top');
     top.appendChild(el('span', 'type t-' + (TYPES[it.type] ? it.type : 'task'), TYPES[it.type] || 'Task'));
     if (ui.projectId === 'all') { const p = state.projects[it.projectId]; if (p) top.appendChild(el('span', 'cproj', p.name)); }
+    const pr = PRIOS[it.priority] ? it.priority : 'med';
+    top.appendChild(el('span', 'prio ' + pr, pr === 'high' ? 'High' : pr === 'low' ? 'Low' : 'Med'));
     const d = dueInfo(it);
     if (aiBusy[it.id]) top.appendChild(el('span', 'due ai-busy-label', 'AI is writing…'));
     else if (d) top.appendChild(el('span', 'due ' + d.cls, d.label));
@@ -450,7 +500,8 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     const cl = arr(it.checklist);
     if (cl.length) {
       const done = cl.filter(c => c.done).length;
-      const s = el('span', 'stat' + (done === cl.length ? ' ok' : '')); s.appendChild(glyph(GLYPH, 'check', 'ic')); s.appendChild(document.createTextNode(done + '/' + cl.length));
+      const s = el('span', 'stat' + (done === cl.length ? ' ok' : ''));
+      s.appendChild(glyph(GLYPH, 'check', 'ic')); s.appendChild(document.createTextNode(done + '/' + cl.length));
       foot.appendChild(s);
     }
     const nl = arr(it.links).length;
@@ -479,6 +530,140 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       });
     }
     return n;
+  }
+
+  // One field. Type it, press Enter: the card is created and the full form opens.
+  /* ---------- Column splitter, composer, undo ---------- */
+  function colSplit(leftStatus, rightStatus) {
+    const h = el('div', 'col-split');
+    h.setAttribute('role', 'separator'); h.setAttribute('aria-orientation', 'vertical');
+    h.tabIndex = 0; h.title = 'Drag to resize, double-click to reset';
+
+    const leftCol = () => h.previousElementSibling;
+    const rightCol = () => h.nextElementSibling;
+    const both = () => {
+      const a = leftCol(), b = rightCol();
+      if (!a || !b || !a.classList.contains('column') || !b.classList.contains('column')) return null;
+      if (a.classList.contains('rail') || b.classList.contains('rail')) return null;
+      return { a, b };
+    };
+    // Weights are pixel widths frozen at drag start. Because every column shares
+    // the row by weight (basis 0), storing the live pixel widths keeps the other
+    // columns exactly where they are and makes the drag arithmetic exact.
+    function freeze() {
+      document.querySelectorAll('.board .column').forEach(c => {
+        if (!c.dataset.status) return;
+        colCfg[c.dataset.status] = Object.assign({}, colCfg[c.dataset.status],
+          { w: Math.max(1, Math.round(c.getBoundingClientRect().width)) });
+      });
+    }
+    function resizeTo(leftW, rightW) {
+      const min = 170, total = leftW + rightW;
+      const l = Math.round(Math.min(total - min, Math.max(min, leftW)));
+      colCfg[leftStatus] = Object.assign({}, colCfg[leftStatus], { w: l, rail: false });
+      colCfg[rightStatus] = Object.assign({}, colCfg[rightStatus], { w: Math.max(1, Math.round(total - l)), rail: false });
+      paintCols();
+    }
+
+    h.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const pair = both(); if (!pair) return;
+      e.preventDefault();
+      freeze();
+      const startX = e.clientX;
+      const startLeft = pair.a.getBoundingClientRect().width;
+      const startRight = pair.b.getBoundingClientRect().width;
+      try { h.setPointerCapture(e.pointerId); } catch (err) {}
+      resizing = true;
+      h.classList.add('dragging'); document.body.classList.add('col-dragging');
+      const move = ev => {
+        const dx = ev.clientX - startX;
+        resizeTo(startLeft + dx, startRight - dx);
+      };
+      const up = () => {
+        if (!resizing) return;
+        resizing = false;
+        h.classList.remove('dragging'); document.body.classList.remove('col-dragging');
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', up);
+        saveCols();
+        if (renderQueued) { renderQueued = false; scheduleRender(); }
+      };
+      // On document, not on h: a board rebuild can detach h mid-drag and lose the pointerup.
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+      document.addEventListener('pointercancel', up);
+    });
+
+    h.addEventListener('dblclick', () => {
+      Object.keys(colCfg).forEach(id => { colCfg[id] = { rail: !!(colCfg[id] && colCfg[id].rail) }; });
+      saveCols(); render();
+    });
+
+    h.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const pair = both(); if (!pair) return;
+      freeze();
+      const d = e.key === 'ArrowRight' ? 24 : -24;
+      resizeTo(pair.a.getBoundingClientRect().width + d, pair.b.getBoundingClientRect().width - d);
+      saveCols();
+    });
+    return h;
+  }
+
+  function composer(status) {
+    const box = el('div', 'composer');
+    const input = document.createElement('input');
+    input.className = 'c-input';
+    input.type = 'text';
+    input.maxLength = 300;
+    input.placeholder = 'Add a title, Enter to open';
+    input.setAttribute('aria-label', 'Add an item to ' + STATUS_NAME[status]);
+    input.dataset.add = status;
+    input.enterKeyHint = 'done';
+    box.appendChild(input);
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const raw = input.value.trim();
+        if (!raw) { input.focus(); return; }
+        if ((e.metaKey || e.ctrlKey) && aiAvailable()) { input.value = ''; addWithAI(status, raw); return; }
+        const it = makeItem(status, raw);
+        if (!it) { showToast('Create a project first.'); return; }
+        remember({ op: 'remove', kind: 'items', id: it.id });
+        put('items', it);
+        input.value = '';
+        openItem(it.id);
+        return;
+      }
+      if (e.key === 'Escape') { input.value = ''; input.blur(); }
+    });
+    return box;
+  }
+
+  /* ---------- Undo (adds and deletes) ---------- */
+  const undoStack = [];
+  let undoMuted = false;
+  function remember(entry) {
+    if (undoMuted) return;
+    undoStack.push(entry);
+    if (undoStack.length > 30) undoStack.shift();
+  }
+  function undoLast() {
+    const e = undoStack.pop();
+    if (!e) { showToast('Nothing to undo.'); return; }
+    undoMuted = true;
+    try {
+      if (e.op === 'remove') {
+        if (state.items[e.id]) del('items', e.id);
+      } else if (e.op === 'restore') {
+        put('items', e.obj);
+      }
+    } finally { undoMuted = false; }
+    showToast(e.op === 'remove' ? 'Removed the last item.' : 'Item restored.');
   }
 
   /* ---------- Drag and drop (desktop) ---------- */
@@ -527,7 +712,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       due: null, order: nextOrder(status), createdAt: nowISO()
     };
   }
-  function addItem(status, raw) { const it = makeItem(status, raw); if (it) put('items', it); }
+  function addItem(status, raw) { const it = makeItem(status, raw); if (it) { put('items', it); remember({ op: 'remove', kind: 'items', id: it.id }); } }
 
   /* ---------- AI ---------- */
   let sampleFn = null, aiOff = false;
@@ -679,24 +864,43 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   function positionPopover() {
     if (!pop) return;
     const p = pop.el, r = pop.anchor.getBoundingClientRect();
-    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
-    p.style.maxHeight = Math.max(180, vh - r.bottom - 16) + 'px';
-    const w = p.offsetWidth;
+    const z = zoom || 1;  // body is zoomed: rects are visual px, style values are layout px
+    const vw = document.documentElement.clientWidth * z, vh = window.innerHeight * z;
+    p.style.maxHeight = Math.max(180, (vh - r.bottom - 16) / z) + 'px';
+    const w = p.offsetWidth * z;
     let left = r.left;
     if (left + w > vw - 8) left = Math.max(8, vw - w - 8);
-    p.style.left = left + 'px';
-    p.style.top = (r.bottom + 6) + 'px';
+    p.style.left = (left / z) + 'px';
+    p.style.top = ((r.bottom + 6) / z) + 'px';
   }
   function togglePopover(anchor, kind, build, cls) {
     if (pop && pop.anchor === anchor) { closePopover(); return; }
     closePopover();
     const p = el('div', 'popover' + (cls ? ' ' + cls : '')); p.setAttribute('role', 'menu');
     (anchor.closest('dialog') || document.body).appendChild(p);
-    pop = { el: p, anchor, kind };
+    pop = { el: p, anchor, kind, i: null };
     anchor.setAttribute('aria-expanded', 'true');
     build(p);
     positionPopover();
-    if (CAN_DRAG) { const f = p.querySelector('.menu-item.sel, .menu-item, .proj-pick'); if (f) f.focus(); }
+    const first = p.querySelector('.proj-row.current .proj-pick, .menu-item.sel, .proj-pick, .menu-item');
+    if (first) {
+      const idx = popItems().indexOf(first);
+      highlightPop(idx < 0 ? 0 : idx);
+    }
+  }
+  function popItems() {
+    return pop ? Array.prototype.slice.call(pop.el.querySelectorAll('.menu-item, .proj-pick')) : [];
+  }
+  function highlightPop(n) {
+    const items = popItems();
+    if (!items.length || !pop) return;
+    const len = items.length;
+    n = typeof n === 'number' && n >= 0 ? n % len : (len - 1);
+    pop.i = n;
+    items.forEach((it, k) => it.classList.toggle('hl', k === n));
+    const t = items[n];
+    try { t.focus({ preventScroll: true }); } catch (e) { t.focus(); }
+    if (t.scrollIntoView) t.scrollIntoView({ block: 'nearest' });
   }
   function menuItem(label, selected, onPick, opts) {
     const b = el('button', 'menu-item' + (selected ? ' sel' : '')); b.type = 'button';
@@ -727,7 +931,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     const cur0 = addTarget(), counts = openCounts();
     projectList().forEach(pr => p.appendChild(menuItem(pr.name, pr.id === cur0, () => {
       ui.addTo = pr.id; saveUI(); closePopover(); render();
-      const i = document.querySelector('input[data-add="' + ui.tab + '"]'); if (i && CAN_DRAG) i.focus();
+      const i = document.querySelector('[data-add="' + ui.tab + '"]'); if (i && CAN_DRAG) i.focus();
     }, { count: (counts[pr.id] || 0) + ' open' })));
     p.appendChild(newProjectRow('New project', id => { ui.addTo = id; saveUI(); closePopover(); render(); }));
   }
@@ -811,7 +1015,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
 
   /* ---------- Item detail ---------- */
   const itemDlg = $('itemDlg');
-  let cur = null, saveT = null;
+  let cur = null, saveT = null, isNew = false;
 
   function openItem(id, refresh) {
     const it = state.items[id]; if (!it) return;
@@ -820,14 +1024,49 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     renderDetail();
     if (refresh) { requestAnimationFrame(() => { grow($('dTitle')); grow($('dDesc')); }); return; }
     resetAiPanel();
+    isNew = false;
+    $('dCreate').hidden = true; $('dDelete').hidden = false; $('dClose').textContent = 'Close';
     itemDlg.showModal();
     $('dDelete').textContent = 'Delete'; delete $('dDelete').dataset.armed;
     requestAnimationFrame(() => { grow($('dTitle')); grow($('dDesc')); $('itemDlg').querySelector('.sheet-body').scrollTop = 0; });
   }
+  function openNew(pref) {
+    if (!Object.keys(state.projects).length) { showToast('Create a project first.'); return; }
+    const projectId = ui.projectId === 'all' ? addTarget() : ui.projectId;
+    const status = STATUS_NAME[ui.tab] ? ui.tab : 'backlog';
+    cur = {
+      id: uid(), projectId: projectId, title: str(pref).trim(), type: 'task', status: status,
+      priority: 'med', tags: [], description: '', checklist: [], links: [], log: [],
+      due: null, order: nextOrder(status), createdAt: nowISO()
+    };
+    isNew = true;
+    renderDetail();
+    $('dCreated').textContent = 'Not saved yet';
+    $('dCreate').hidden = false; $('dDelete').hidden = true; $('dClose').textContent = 'Cancel';
+    resetAiPanel();
+    itemDlg.showModal();
+    requestAnimationFrame(() => {
+      grow($('dTitle'));
+      itemDlg.querySelector('.sheet-body').scrollTop = 0;
+      $('dTitle').focus();
+    });
+  }
+  function commitNew() {
+    if (!cur || !isNew) return;
+    if (!cur.title.trim()) { $('dTitle').focus(); showToast('Give the item a title first.'); return; }
+    clearTimeout(saveT); saveT = null;
+    const it = clone(cur);
+    it.title = it.title.trim();
+    it.log = arr(it.log).concat([logEntry('created', 'Created')]);
+    put('items', it);
+    remember({ op: 'remove', kind: 'items', id: it.id });
+    isNew = false; cur = null;
+    itemDlg.close();
+  }
   function saveSoon() { clearTimeout(saveT); saveT = setTimeout(saveNow, 600); }
   function saveNow() {
     clearTimeout(saveT); saveT = null;
-    if (!cur || !state.items[cur.id]) return;
+    if (!cur || isNew || !state.items[cur.id]) return;
     const copy = clone(cur);
     copy.title = copy.title.trim() || 'Untitled';
     put('items', copy);
@@ -835,6 +1074,9 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
 
   function renderDetail() {
     renderDetailHead();
+    $('dComment').value = ''; grow($('dComment'));
+    $('dLinkUrl').value = ''; $('dLinkLabel').value = '';
+    $('dCheckAdd').value = '';
     $('dTitle').value = cur.title;
     $('dPrio').value = PRIOS[cur.priority] ? cur.priority : 'med';
     $('dDue').value = cur.due || '';
@@ -1098,8 +1340,22 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     itemDlg.close(); del('items', id);
   });
   $('dClose').addEventListener('click', () => itemDlg.close());
+  // Clicking the dimmed board closes the drawer (the sheet box is the panel itself).
+  itemDlg.addEventListener('click', e => { if (e.target === itemDlg) itemDlg.close(); });
+  $('keysDlg').addEventListener('click', e => { if (e.target === $('keysDlg')) $('keysDlg').close(); });
+  itemDlg.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return;
+    e.preventDefault();
+    if (isNew) commitNew(); else { saveNow(); itemDlg.close(); }
+  });
   $('dAi').addEventListener('click', () => expandCurrent(false));
-  itemDlg.addEventListener('close', () => { closePopover(); if (cur && saveT) saveNow(); resetAiPanel(); cur = null; });
+  itemDlg.addEventListener('close', () => {
+    closePopover();
+    if (cur && !isNew && saveT) saveNow();
+    resetAiPanel();
+    cur = null; isNew = false;
+    $('dCreate').hidden = true; $('dDelete').hidden = false; $('dClose').textContent = 'Close';
+  });
 
   /* ---------- Backup ---------- */
   const backupDlg = $('backupDlg');
@@ -1181,14 +1437,154 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   document.querySelectorAll('#typeChips .chip').forEach(b => b.addEventListener('click', () => { ui.type = b.dataset.type; saveUI(); render(); }));
   document.querySelectorAll('#prioChips .chip').forEach(b => b.addEventListener('click', () => { ui.prio = b.dataset.prio; saveUI(); render(); }));
   const search = $('search');
-  search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderBoard(); });
-  document.addEventListener('keydown', e => {
-    const tag = (document.activeElement && document.activeElement.tagName) || '';
-    if (/INPUT|TEXTAREA|SELECT/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (document.querySelector('dialog[open]')) return;
-    if (e.key === 'n') { const i = document.querySelector('input[data-add="' + ui.tab + '"]') || document.querySelector('input[data-add]'); if (i) { e.preventDefault(); i.focus(); } }
-    if (e.key === '/') { e.preventDefault(); search.focus(); }
+  search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); render(); });
+  let lastCardId = null;
+  document.addEventListener('focusin', e => {
+    const c = e.target && e.target.closest ? e.target.closest('.card') : null;
+    if (c) lastCardId = c.dataset.id;
   });
+  function firstCard() {
+    if (lastCardId) {
+      const seen = document.querySelector('.card[data-id="' + lastCardId + '"]');
+      if (seen) return seen;
+    }
+    const col = document.querySelector('.column[aria-label="' + STATUS_NAME[ui.tab] + '"]') ||
+                document.querySelector('.column');
+    return col ? col.querySelector('.card') : null;
+  }
+  const TYPE_FILTERS = ['all', 'feature', 'bug', 'task'];   // same order as the chips
+  function cycleTypeFilter() {
+    const i = TYPE_FILTERS.indexOf(ui.type);
+    ui.type = TYPE_FILTERS[(i + 1) % TYPE_FILTERS.length];
+    saveUI(); render();
+  }
+  function togglePrioFilter(p) {
+    ui.prio = ui.prio === p ? 'all' : p;
+    saveUI(); render();
+  }
+  function openProjectMenu() {
+    if (!state.ready) return;
+    $('projBtn').click();
+    requestAnimationFrame(() => {
+      const row = document.querySelector('.popover .proj-row.current .proj-pick') ||
+                  document.querySelector('.popover .proj-pick');
+      if (row) row.focus();
+    });
+  }
+  function focusComposer() {
+    const i = document.querySelector('[data-add="' + ui.tab + '"]') || document.querySelector('[data-add]');
+    if (i) { i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (err) {} }
+  }
+  function moveCardFocus(key) {
+    const a = document.activeElement;
+    const card = a && a.closest ? a.closest('.card') : null;
+    if (!card) return false;
+    const list = card.closest('.list');
+    if (!list) return false;
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      const cards = Array.prototype.slice.call(list.querySelectorAll('.card:not(.dragging)'));
+      const target = cards[cards.indexOf(card) + (key === 'ArrowDown' ? 1 : -1)];
+      if (target) target.focus();
+      return true;
+    }
+    const lists = Array.prototype.slice.call(document.querySelectorAll('.board .list'))
+      .filter(l => !l.closest('.column.rail'));
+    const from = lists.indexOf(list), dir = key === 'ArrowRight' ? 1 : -1;
+    for (let k = from + dir; k >= 0 && k < lists.length; k += dir) {
+      const first = lists[k].querySelector('.card');
+      if (first) { first.focus(); break; }
+    }
+    return true;
+  }
+
+  document.addEventListener('keydown', e => {
+    const ae = document.activeElement;
+    const tag = (ae && ae.tagName) || '';
+    const typing = /INPUT|TEXTAREA|SELECT/.test(tag) || !!(ae && ae.isContentEditable);
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomBy(0.1); return; }
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(-0.1); return; }
+      if (e.key === '0') { e.preventDefault(); zoom = 1; lsSet(LS_ZOOM, zoom); applyZoom(); closePopover(); return; }
+      if (e.key === 'k' || e.key === 'K') { e.preventDefault(); search.focus(); search.select(); return; }
+      if ((e.key === 'z' || e.key === 'Z') && !typing) { e.preventDefault(); undoLast(); return; }
+      return;
+    }
+    if (e.altKey) return;
+    if (typing) return;
+    if (document.querySelector('dialog[open]')) return;
+    if (pop) return;                       // the open menu owns the arrow keys
+    if (e.key === 'n' || e.key === 'N') { e.preventDefault(); focusComposer(); return; }
+    if (e.key === '/') { e.preventDefault(); search.focus(); return; }
+    if (e.key === '?') { e.preventDefault(); $('keysDlg').showModal(); return; }
+    if (e.key === 'p' || e.key === 'P') { e.preventDefault(); openProjectMenu(); return; }
+    if (e.key === 't' || e.key === 'T') { e.preventDefault(); cycleTypeFilter(); return; }
+    if (e.key === '1' || e.key === '2' || e.key === '3') {
+      e.preventDefault();
+      togglePrioFilter({ 1: 'high', 2: 'med', 3: 'low' }[e.key]);
+      return;
+    }
+    const card = ae && ae.closest ? ae.closest('.card') : null;
+    if (e.key === 'e' || e.key === 'E') {
+      if (card) { e.preventDefault(); openItem(card.dataset.id); }
+      return;
+    }
+    if (card && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault();
+      del('items', card.dataset.id);
+      showToast('Item deleted. Ctrl+Z to undo.');
+      return;
+    }
+    if (/^Arrow/.test(e.key)) {
+      // Arrows work even when nothing in the board is focused yet.
+      const here = card || firstCard();
+      if (!here) return;
+      e.preventDefault();
+      if (card) moveCardFocus(e.key); else here.focus();
+    }
+  });
+
+  // Menus own their own highlight index (pop.i), so arrow/vim keys never depend
+  // on where DOM focus happened to land. Capture phase: nothing else sees these.
+  document.addEventListener('keydown', e => {
+    if (!pop) return;
+    const tag = e.target && e.target.tagName;
+    if (/INPUT|TEXTAREA|SELECT/.test(tag || '')) return;   // the New project field
+    const k = e.key, len = popItems().length;
+    if (!len) return;
+    const step = (k === 'ArrowDown' || k === 'j') ? 1 : (k === 'ArrowUp' || k === 'k') ? -1 : 0;
+    if (step) {
+      e.preventDefault(); e.stopPropagation();
+      const from = pop.i == null ? (step === 1 ? -1 : 0) : pop.i;
+      highlightPop((from + step + len) % len);
+      return;
+    }
+    if (k === 'Home' || k === 'End') {
+      e.preventDefault(); e.stopPropagation();
+      highlightPop(k === 'Home' ? 0 : len - 1);
+      return;
+    }
+    if (k === 'Enter' || k === ' ') {
+      const t = pop.i == null ? null : popItems()[pop.i];
+      if (!t) return;
+      e.preventDefault(); e.stopPropagation();
+      t.click();
+    }
+  }, true);
+
+  /* ---------- Chrome buttons ---------- */
+  $('themeBtn').addEventListener('click', () => {
+    lsSet(LS_THEME, prefersDark() ? 'light' : 'dark');
+    applyTheme();
+  });
+  if (mqDark && mqDark.addEventListener) {
+    mqDark.addEventListener('change', () => { if (!themePref()) applyTheme(); });
+  }
+  $('newBtn').addEventListener('click', () => openNew(''));
+  $('dCreate').addEventListener('click', commitNew);
+  $('keysBtn').addEventListener('click', () => $('keysDlg').showModal());
+  $('kClose').addEventListener('click', () => $('keysDlg').close());
+  applyTheme();
+  applyZoom();
   // refresh relative times and due labels now and then
   setInterval(() => { if (!document.hidden && !dragId) scheduleRender(); }, 60000);
 
