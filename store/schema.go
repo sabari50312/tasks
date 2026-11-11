@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS items (
   priority    TEXT NOT NULL DEFAULT '',
   due_date    TEXT NOT NULL DEFAULT '',
   created_at  DATETIME NOT NULL,
-  updated_at  DATETIME NOT NULL
+  updated_at  DATETIME NOT NULL,
+  item_order  REAL NOT NULL DEFAULT 0
 );`
 
 // id, project_id, type, title, description, status, priority, due_date, created_at, updated_at

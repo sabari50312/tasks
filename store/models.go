@@ -18,6 +18,7 @@ type Item struct {
 	DueDate     string    `json:"due"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	ItemOrder   float64   `json:"itemOrder"`
 }
 
 // Status, Priority, DueDate, CreatedAt, UpdatedAt, and Tags.

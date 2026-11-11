@@ -63,3 +63,8 @@ func (a *App) DeleteItem(project_id string, item_id string) (int64, error) {
 func (a *App) DeleteProject(project_id string) (int64, error) {
 	return a.conn.DeleteProject(project_id)
 }
+
+func (a *App) UpdateItemOrder(item_id string, order float64) error {
+	return a.conn.UpdateItemOrder(item_id, order)
+
+}

@@ -1,5 +1,5 @@
 import './style.css';
-import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from '../wailsjs/go/main/App';
+import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject, UpdateItemOrder } from '../wailsjs/go/main/App';
 
 (function () {
   'use strict';
@@ -209,6 +209,23 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       delete S.raw[kind][id]; delete S.deleting[k];
     });
   }
+  // Reordering is not an edit: no new updatedAt, so the row's updated_at stays
+  // put. Only a same-column drag comes through here; a move between columns
+  // changes status as well and uses put().
+  function writeOrder(id, itemOrder) {
+    if (cur && cur.id === id) cur.itemOrder = itemOrder;
+    const base = S.pending['items/' + id] || state.items[id] || S.raw.items[id];
+    if (!base) return;
+    const obj = Object.assign(clone(base), { itemOrder });
+    const k = 'items/' + id;
+    if (S.mode !== 'db') { S.raw.items[id] = obj; persistLocal(); compose(); scheduleRender(); return; }
+    S.pending[k] = obj;
+    compose(); scheduleRender();
+    enqueue(k, async () => {
+      await UpdateItemOrder(id, itemOrder);
+      if (S.pending[k] === obj) { delete S.pending[k]; S.raw.items[id] = obj; }
+    });
+  }
   async function writeMany(ops) {
     // ops: [{kind, op:'set'|'delete', obj?, id?}] written one at a time
     if (S.mode !== 'db') {
@@ -318,14 +335,18 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     }
     return true;
   }
+  // itemOrder is a position inside one column, so it is not comparable across
+  // columns. Anything without a number (old localStorage data) sorts by
+  // createdAt instead, which is the board's original behaviour.
+  const ord = it => (Number.isFinite(it.itemOrder) ? it.itemOrder : 0);
   function columnItems(status) {
     return Object.values(state.items)
       .filter(it => it.status === status && matches(it))
-      .sort((a, b) => (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) || str(a.id).localeCompare(str(b.id)));
+      .sort((a, b) => ord(a) - ord(b) || (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) || str(a.id).localeCompare(str(b.id)));
   }
   function nextOrder(status, excludeId) {
     let m = 0;
-    for (const it of Object.values(state.items)) if (it.status === status && it.id !== excludeId && it.order > m) m = it.order;
+    for (const it of Object.values(state.items)) if (it.status === status && it.id !== excludeId && ord(it) > m) m = ord(it);
     return m + 1;
   }
   function allTags() {
@@ -519,7 +540,12 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
         dragId = it.id;
         e.dataTransfer.effectAllowed = 'move';
         try { e.dataTransfer.setData('text/plain', it.id); } catch (err) {}
-        setTimeout(() => n.classList.add('dragging'), 0);
+        // Anchor the ghost where the pointer actually grabbed the card, and dim
+        // on the spot. Deferring the class left the first frame showing two
+        // solid copies.
+        const r = n.getBoundingClientRect();
+        try { e.dataTransfer.setDragImage(n, e.clientX - r.left, e.clientY - r.top); } catch (err) {}
+        n.classList.add('dragging');
       });
       n.addEventListener('dragend', () => {
         n.classList.remove('dragging');
@@ -668,28 +694,47 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
 
   /* ---------- Drag and drop (desktop) ---------- */
   const ph = el('div', 'ph');
-  function afterElement(list, y) {
-    const els = list.querySelectorAll('.card:not(.dragging)');
-    for (const c of els) { const r = c.getBoundingClientRect(); if (y < r.top + r.height / 2) return c; }
+  // Skip the dragged card by id, not by the .dragging class: dragstart marks it
+  // a tick later, and the first dragover can beat that.
+  function afterElement(list, y, skipId) {
+    const els = list.querySelectorAll('.card');
+    for (const c of els) {
+      if (c.dataset.id === skipId) continue;
+      const r = c.getBoundingClientRect(); if (y < r.top + r.height / 2) return c;
+    }
     return null;
   }
   function wireDrop(list, status) {
     list.addEventListener('dragover', e => {
       if (!dragId) return;
       e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-      list.classList.add('over');
-      const after = afterElement(list, e.clientY);
-      if (after) list.insertBefore(ph, after); else list.appendChild(ph);
+      // Only the list currently under the pointer keeps .over: whoever gets a
+      // dragover claims it and every other list drops it. That removes any need
+      // for a dragleave handler, which is what was flashing — WebKitGTK reports
+      // dragleave (with a null relatedTarget, and sometimes zeroed clientX/Y)
+      // whenever the pointer crosses onto a child card.
+      for (const l of document.querySelectorAll('.list.over')) if (l !== list) l.classList.remove('over');
+      if (!list.classList.contains('over')) list.classList.add('over');
+      // Re-inserting ph at the position it already holds is a DOM mutation, and
+      // a mutation per dragover repaints the column several times a second.
+      const after = afterElement(list, e.clientY, dragId);
+      if (after) { if (ph.nextElementSibling !== after || ph.parentNode !== list) list.insertBefore(ph, after); }
+      else if (ph.parentNode !== list || ph.nextElementSibling) list.appendChild(ph);
     });
-    list.addEventListener('dragleave', e => {
-      if (!list.contains(e.relatedTarget)) { list.classList.remove('over'); if (ph.parentNode === list) list.removeChild(ph); }
+    list.addEventListener('dragleave', () => {
+      // Intentionally empty: the list that receives the next dragover takes .over
+      // from the others, and dragend sweeps up whatever is left.
     });
     list.addEventListener('drop', e => {
       if (!dragId) return;
       e.preventDefault();
-      const next = ph.nextElementSibling;
-      const beforeId = next && next.classList.contains('card') ? next.dataset.id : null;
       const id = dragId;
+      // The dragged card is still in the list, so it can be ph's next sibling.
+      // Reading its id here would look unfindable in moveItem and park the card
+      // at the bottom instead of dropping it where it was released.
+      let next = ph.nextElementSibling;
+      while (next && next.dataset.id === id) next = next.nextElementSibling;
+      const beforeId = next && next.classList.contains('card') ? next.dataset.id : null;
       if (ph.parentNode) ph.parentNode.removeChild(ph);
       list.classList.remove('over');
       dragId = null;
@@ -709,7 +754,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     return {
       id: uid(), projectId, title: title.slice(0, 300), type, status, priority: 'med',
       tags: [], description: '', checklist: [], links: [], log: [logEntry('created', createdText || 'Created')],
-      due: null, order: nextOrder(status), createdAt: nowISO()
+      due: null, itemOrder: nextOrder(status), createdAt: nowISO()
     };
   }
   function addItem(status, raw) { const it = makeItem(status, raw); if (it) { put('items', it); remember({ op: 'remove', kind: 'items', id: it.id }); } }
@@ -829,14 +874,28 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     const it = state.items[id]; if (!it) return;
     const list = columnItems(status).filter(x => x.id !== id);
     const idx = beforeId ? list.findIndex(x => x.id === beforeId) : -1;
-    let order;
-    if (idx === -1) order = list.length ? list[list.length - 1].order + 1 : nextOrder(status, id);
-    else { const nx = list[idx], pv = list[idx - 1]; order = pv ? (pv.order + nx.order) / 2 : nx.order - 1; }
-    const u = clone(it);
-    const changed = u.status !== status;
-    u.status = status; u.order = order;
-    if (changed) u.log = arr(u.log).concat([logEntry('status', 'Moved to ' + STATUS_NAME[status])]);
-    put('items', u);
+    let itemOrder;
+    if (idx === -1) {
+      // Dropped below the last card: park it past the end of the column.
+      itemOrder = list.length ? ord(list[list.length - 1]) + 1 : nextOrder(status, id);
+    } else {
+      // Dropped between two cards: land halfway. Halving the same gap dies
+      // after ~50 drops, which no real board reaches.
+      const nx = list[idx], pv = list[idx - 1];
+      itemOrder = pv ? (ord(pv) + ord(nx)) / 2 : ord(nx) - 1;
+    }
+    if (it.status !== status) {
+      // A cross-column move is a real edit (status plus a log line), so it
+      // rides the normal upsert. UpsertItem deliberately leaves item_order
+      // out of the conflict branch, so the position follows in its own write.
+      const u = clone(it);
+      u.status = status; u.itemOrder = itemOrder;
+      u.log = arr(u.log).concat([logEntry('status', 'Moved to ' + STATUS_NAME[status])]);
+      put('items', u);
+      writeOrder(id, itemOrder);
+      return;
+    }
+    writeOrder(id, itemOrder);
   }
 
   function createProject(name, keepView) {
@@ -1037,7 +1096,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
     cur = {
       id: uid(), projectId: projectId, title: str(pref).trim(), type: 'task', status: status,
       priority: 'med', tags: [], description: '', checklist: [], links: [], log: [],
-      due: null, order: nextOrder(status), createdAt: nowISO()
+      due: null, itemOrder: nextOrder(status), createdAt: nowISO()
     };
     isNew = true;
     renderDetail();
@@ -1175,9 +1234,13 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
   }
   function setStatus(s) {
     if (!cur || cur.status === s) return;
-    cur.status = s; cur.order = nextOrder(s, cur.id);
+    cur.status = s; cur.itemOrder = nextOrder(s, cur.id);
     cur.log.push(logEntry('status', 'Moved to ' + STATUS_NAME[s]));
-    saveNow(); renderStatusSeg(); renderLog();
+    // saveNow() goes through UpsertItem, which leaves item_order alone on
+    // conflict. The card just changed column, so its position needs its own
+    // write or it keeps a number that belonged to the old column.
+    saveNow(); writeOrder(cur.id, cur.itemOrder);
+    renderStatusSeg(); renderLog();
   }
 
   function renderTags() {
@@ -1374,7 +1437,7 @@ import { LoadBoard, UpsertItem, UpsertProject, DeleteItem, DeleteProject } from 
       links: arr(o.links).map(l => ({ id: ID_RE.test(str(l && l.id)) ? l.id : uid(), url: safeUrl(l && l.url), label: str(l && l.label).slice(0, 80) })).filter(l => l.url),
       log: arr(o.log).filter(l => l && typeof l.text === 'string').map(l => ({ id: ID_RE.test(str(l.id)) ? l.id : uid(), kind: ['comment', 'status', 'created', 'ai'].indexOf(l.kind) > -1 ? l.kind : 'comment', text: l.text, at: str(l.at) || nowISO() })).slice(-500),
       due: /^\d{4}-\d{2}-\d{2}$/.test(str(o.due)) ? o.due : null,
-      order: Number.isFinite(o.order) ? o.order : 0,
+      itemOrder: Number.isFinite(o.itemOrder) ? o.itemOrder : (Number.isFinite(o.order) ? o.order : 0),
       createdAt: str(o.createdAt) || nowISO(),
       updatedAt: nowISO()
     };

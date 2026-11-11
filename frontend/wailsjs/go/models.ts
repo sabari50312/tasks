@@ -50,6 +50,7 @@ export namespace store {
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
+	    itemOrder: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Item(source);
@@ -67,6 +68,7 @@ export namespace store {
 	        this.due = source["due"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.itemOrder = source["itemOrder"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

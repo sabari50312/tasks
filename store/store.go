@@ -61,8 +61,8 @@ func (s *Store) UpsertItem(item Item) error {
 
 	now := time.Now().UTC().Format(stampLayout)
 
-	_, err := s.db.Exec(`INSERT INTO items (id, project_id, type, title, description, status, priority, due_date, created_at, updated_at) 
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO items (id, project_id, type, title, description, status, priority, due_date, created_at, updated_at, item_order) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT (id) DO UPDATE SET
 		type = excluded.type,
 		project_id= excluded.project_id,
@@ -72,10 +72,18 @@ func (s *Store) UpsertItem(item Item) error {
 		priority = excluded.priority,
 		due_date = excluded.due_date,
 		updated_at = excluded.updated_at`,
-		item.Id, item.ProjectID, item.Type, item.Title, item.Description, item.Status, item.Priority, item.DueDate, now, now)
+		item.Id, item.ProjectID, item.Type, item.Title, item.Description, item.Status, item.Priority, item.DueDate, now, now, item.ItemOrder)
 
 	if err != nil {
 		return fmt.Errorf("item upsert error: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpdateItemOrder(item_id string, order float64) error {
+	if _, err := s.db.Exec(`UPDATE items SET item_order=?
+	WHERE id=?`, order, item_id); err != nil {
+		return fmt.Errorf("update order error: %w", err)
 	}
 	return nil
 }
@@ -117,9 +125,10 @@ func (s *Store) ListItems(project_id string) ([]Item, error) {
 	priority, 
 	due_date, 
 	created_at, 
-	updated_at 
+	updated_at,
+	item_order 
 	FROM items WHERE project_id=?
-	ORDER BY created_at`, project_id)
+	ORDER BY item_order, created_at`, project_id)
 	if err != nil {
 		return nil, fmt.Errorf("list items query error: %w", err)
 	}
@@ -135,7 +144,8 @@ func (s *Store) ListItems(project_id string) ([]Item, error) {
 			&i.Priority,
 			&i.DueDate,
 			&i.CreatedAt,
-			&i.UpdatedAt); err != nil {
+			&i.UpdatedAt,
+			&i.ItemOrder); err != nil {
 			return nil, fmt.Errorf("scan items error: %w", err)
 		}
 		items = append(items, i)

@@ -9,6 +9,8 @@ export function DeleteProject(arg1:string):Promise<number>;
 
 export function LoadBoard():Promise<main.Board>;
 
+export function UpdateItemOrder(arg1:string,arg2:number):Promise<void>;
+
 export function UpsertItem(arg1:store.Item):Promise<void>;
 
 export function UpsertProject(arg1:store.Project):Promise<void>;

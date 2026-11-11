@@ -14,6 +14,10 @@ export function LoadBoard() {
   return window['go']['main']['App']['LoadBoard']();
 }
 
+export function UpdateItemOrder(arg1, arg2) {
+  return window['go']['main']['App']['UpdateItemOrder'](arg1, arg2);
+}
+
 export function UpsertItem(arg1) {
   return window['go']['main']['App']['UpsertItem'](arg1);
 }
